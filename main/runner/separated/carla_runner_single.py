@@ -237,8 +237,8 @@ class CARLARunner(Runner):
 
             self.envs.close()
             # eval
-            #if episode % self.eval_interval == 0 and self.use_eval:
-            #    self.eval(total_num_steps)
+            if self.use_eval and ((episode + 1) % self.eval_interval == 0 or episode == episodes - 1):
+                self.eval(total_num_steps)
 
     def warmup(self):
         # reset env
@@ -353,9 +353,9 @@ class CARLARunner(Runner):
                                         masks[:, agent_id])
 
     @torch.no_grad()
-    def eval(self):
+    def eval(self, total_num_steps=None):
         #episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
-        episodes = self.all_args.episodes
+        episodes = self.all_args.eval_episodes
 
         for episode in range(episodes):
             start = time.time()
@@ -506,10 +506,12 @@ class CARLARunner(Runner):
                 eval_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
                 eval_masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
 
+            log_step = total_num_steps if total_num_steps is not None else episode
+
             if error_flag:
                 self.vid_2_idx = None
                 self.idx_2_vid = None
-                self.close_eval_video(eval_video, episode)
+                self.close_eval_video(eval_video, episode, step=log_step)
                 self.envs.close()
                 print("Error in simulation, continue to next episode...")
                 continue
@@ -539,12 +541,12 @@ class CARLARunner(Runner):
                         sum(cols_rwds), sum(dest_rwds), sum(sact_rwds), (end-start)/60))
                     print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-                self.log_train(train_infos, episode)
+                self.log_train(train_infos, log_step)
 
             self.vid_2_idx = None
             self.idx_2_vid = None
 
-            self.close_eval_video(eval_video, episode)
+            self.close_eval_video(eval_video, episode, step=log_step)
             self.envs.close()
 
     @torch.no_grad()

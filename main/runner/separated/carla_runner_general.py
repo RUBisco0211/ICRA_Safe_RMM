@@ -448,6 +448,8 @@ class CARLARunner(Runner):
             self.idx_2_vid = None
 
             self.envs.close()
+            if self.use_eval and ((episode + 1) % self.eval_interval == 0 or episode == episodes - 1):
+                self.eval(total_num_steps)
 
     def warmup(self):
         # reset env
@@ -577,9 +579,9 @@ class CARLARunner(Runner):
                                         masks[:, agent_id])
 
     @torch.no_grad()
-    def eval(self):
+    def eval(self, total_num_steps=None):
         #episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
-        episodes = self.all_args.episodes
+        episodes = self.all_args.eval_episodes
 
         for episode in range(episodes):
             start = time.time()
@@ -800,10 +802,12 @@ class CARLARunner(Runner):
                 eval_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
                 eval_masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
 
+            log_step = total_num_steps if total_num_steps is not None else episode
+
             if error_flag:
                 self.vid_2_idx = None
                 self.idx_2_vid = None
-                self.close_eval_video(eval_video, episode)
+                self.close_eval_video(eval_video, episode, step=log_step)
                 self.envs.close()
                 print("Error in simulation, continue to next episode...")
                 continue
@@ -832,7 +836,8 @@ class CARLARunner(Runner):
                     train_info.update({"avg_eps_cols_rewards": sum(cols_rwds)})
                     train_info.update({"avg_eps_safe_rewards": sum(safe_rwds)})
                     train_info.update({"avg_eps_enco_rewards": sum(enco_rwds)})
-                    train_infos.append(train_info)
+                    for _ in range(self.num_agents):
+                        train_infos.append(train_info.copy())
 
                     print_episode_msg(episode, self.envs.done_collision, (end-start)/60, episode_returns, avg_rwd_items, \
                         discounted_returns, all_flow_rewards, all_dest_rewards, self.all_args.flow_reward_coef)
@@ -852,12 +857,12 @@ class CARLARunner(Runner):
 
                     self.store_dict[episode] = episode_dict
 
-                self.log_train(train_infos, episode)
+                self.log_train(train_infos, log_step)
 
             self.vid_2_idx = None
             self.idx_2_vid = None
 
-            self.close_eval_video(eval_video, episode)
+            self.close_eval_video(eval_video, episode, step=log_step)
             self.envs.close()
 
     @torch.no_grad()
