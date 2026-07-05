@@ -9,6 +9,8 @@ import setproctitle
 from main.envs.carla.carla_environment_robust_CBF import CarEnv
 #from main.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
 from configs.config_carla import get_config
+from main.runner.wandb_logger import finish as wandb_finish
+from main.runner.wandb_logger import get_next_run_dir, init_wandb, save as wandb_save
 
 def make_train_carla_env(args):
     if args.map=='Town05': # town05, 4 cars, 3 agents
@@ -95,20 +97,9 @@ def run(args):
         os.makedirs(str(run_dir))
 
     # wandb
+    run_dir = get_next_run_dir(run_dir)
     if all_args.use_wandb:
-        raise NotImplementedError
-    else:
-        if not run_dir.exists():
-            curr_run = 'run1'
-        else:
-            exst_run_nums = [int(str(folder.name).split('run')[1]) for folder in run_dir.iterdir() if str(folder.name).startswith('run')]
-            if len(exst_run_nums) == 0:
-                curr_run = 'run1'
-            else:
-                curr_run = 'run%i' % (max(exst_run_nums) + 1)
-        run_dir = run_dir / curr_run
-        if not run_dir.exists():
-            os.makedirs(str(run_dir))
+        init_wandb(all_args, run_dir)
 
     setproctitle.setproctitle(str(all_args.algorithm_name) + "-" + \
         str(all_args.env_name) + "-" + str(all_args.experiment_name) + "@" + str(all_args.user_name))
@@ -144,10 +135,13 @@ def run(args):
     
     # post process
     envs.close()
-    runner.save_as_pickle(os.path.join(run_dir, 'logging_dict.pkl'))
+    logging_dict_path = os.path.join(run_dir, 'logging_dict.pkl')
+    runner.save_as_pickle(logging_dict_path)
+    if all_args.use_wandb:
+        wandb_save(logging_dict_path, base_path=str(run_dir))
 
     if all_args.use_wandb:
-        run.finish()
+        wandb_finish()
     else:
         runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
         runner.writter.close()

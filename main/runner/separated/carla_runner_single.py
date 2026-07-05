@@ -364,6 +364,7 @@ class CARLARunner(Runner):
             error_flag = False
             
             obs, combined_obs, all_car_info_dict = self.warmup()
+            eval_video = self.start_eval_video(episode)
             eval_rnn_states = np.zeros((1, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
             eval_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
 
@@ -465,6 +466,7 @@ class CARLARunner(Runner):
                 obs_dict, rewards, done, all_car_info_dict, \
                     rwd_items, safe_actions, force_continue = \
                     self.envs.step({self.idx_2_vid[0]: [throttle, brake, action[1]]}, step_n=step)
+                self.capture_eval_video_frame(eval_video)
 
                 previous_command = command
                 
@@ -507,6 +509,7 @@ class CARLARunner(Runner):
             if error_flag:
                 self.vid_2_idx = None
                 self.idx_2_vid = None
+                self.close_eval_video(eval_video, episode)
                 self.envs.close()
                 print("Error in simulation, continue to next episode...")
                 continue
@@ -541,6 +544,7 @@ class CARLARunner(Runner):
             self.vid_2_idx = None
             self.idx_2_vid = None
 
+            self.close_eval_video(eval_video, episode)
             self.envs.close()
 
     @torch.no_grad()

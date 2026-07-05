@@ -169,7 +169,8 @@ def get_config():
     #                    help="Number of parallel envs for rendering rollouts")
     parser.add_argument("--num_env_steps", type=int, default=100000, help='Number of environment steps to train (default: 10e6)')
     parser.add_argument("--user_name", type=str, default='zzl',help="[for wandb usage], to specify user's name for simply collecting training data.")
-    parser.add_argument("--use_wandb", action='store_true', default=False, help="[for wandb usage], by default True, will log date to wandb server. or else will use tensorboard to log data.")
+    parser.add_argument("--use_wandb", action='store_true', default=True, help="[for wandb usage], by default True, will log data to wandb server.")
+    parser.add_argument("--no_wandb", action='store_false', dest="use_wandb", help="disable wandb logging and use the local tensorboard writer.")
 
     # env parameters
     parser.add_argument("--env_name", type=str, default='CARLA', help="specify the name of environment")
@@ -284,10 +285,11 @@ def get_config():
     parser.add_argument("--eval_episodes", type=int, default=32, help="number of episodes of a single evaluation.")
 
     # render parameters
-    #parser.add_argument("--save_gifs", action='store_true', default=False, help="by default, do not save render video. If set, save video.")
+    parser.add_argument("--save_gifs", action='store_true', default=True, help="by default, save eval videos.")
+    parser.add_argument("--no_save_gifs", action='store_false', dest="save_gifs", help="disable eval video saving.")
     parser.add_argument("--use_render", action='store_true', default=False, help="by default, do not render the env during training. If set, start render. Note: something, the environment has internal render process which is not controlled by this hyperparam.")
     #parser.add_argument("--render_episodes", type=int, default=5, help="the number of episodes to render a given env")
-    #parser.add_argument("--ifi", type=float, default=0.1, help="the play interval of each rendered image in saved video.")
+    parser.add_argument("--ifi", type=float, default=0.05, help="the play interval of each rendered image in saved video.")
 
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")

@@ -1,6 +1,5 @@
     
 import time
-# import wandb
 import os
 import numpy as np
 from itertools import chain
@@ -9,6 +8,9 @@ from tensorboardX import SummaryWriter
 
 from main.algorithms.utils.separated_buffer import SeparatedReplayBuffer
 from main.algorithms.utils.util import update_linear_schedule
+from main.runner.wandb_logger import EvalVideoRecorder
+from main.runner.wandb_logger import log as wandb_log
+from main.runner.wandb_logger import save as wandb_save
 
 def _t2n(x):
     return x.detach().cpu().numpy()
@@ -51,18 +53,19 @@ class Runner(object):
         # dir
         self.model_dir = self.all_args.model_dir
 
-        if self.use_wandb:
-            # self.save_dir = str(wandb.run.dir)
-            pass
-        else:
-            self.run_dir = config["run_dir"]
-            self.log_dir = str(self.run_dir / 'logs')
-            if not os.path.exists(self.log_dir):
-                os.makedirs(self.log_dir)
+        self.run_dir = config["run_dir"]
+        self.log_dir = str(self.run_dir / 'logs')
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+        self.save_dir = str(self.run_dir / 'models')
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
+        self.video_dir = str(self.run_dir / 'videos')
+        if not os.path.exists(self.video_dir):
+            os.makedirs(self.video_dir)
+
+        if not self.use_wandb:
             self.writter = SummaryWriter(self.log_dir)
-            self.save_dir = str(self.run_dir / 'models')
-            if not os.path.exists(self.save_dir):
-                os.makedirs(self.save_dir)
 
         if self.algorithm_name == "wmappo":
             from main.algorithms.r_mappo.r_wocar_mappo import R_WOCAR_MAPPO as TrainAlgo
@@ -165,6 +168,10 @@ class Runner(object):
             if self.trainer[agent_id]._use_valuenorm:
                 policy_vnrom = self.trainer[agent_id].value_normalizer
                 torch.save(policy_vnrom.state_dict(), str(self.save_dir) + "/vnrom_agent" + str(agent_id) + ".pt")
+        if self.use_wandb:
+            for model_file in os.listdir(self.save_dir):
+                if model_file.endswith(".pt"):
+                    wandb_save(os.path.join(self.save_dir, model_file), base_path=str(self.run_dir))
 
     def restore(self, actor_only=False):
         for agent_id in range(self.num_agents):
@@ -193,8 +200,7 @@ class Runner(object):
             for k, v in train_infos[agent_id].items():
                 agent_k = "agent%i/" % agent_id + k
                 if self.use_wandb:
-                    # wandb.log({agent_k: v}, step=total_num_steps)
-                    pass
+                    wandb_log({agent_k: v}, step=total_num_steps)
                 else:
                     self.writter.add_scalars(agent_k, {agent_k: v}, total_num_steps)
 
@@ -202,7 +208,21 @@ class Runner(object):
         for k, v in env_infos.items():
             if len(v) > 0:
                 if self.use_wandb:
-                    # wandb.log({k: np.mean(v)}, step=total_num_steps)
-                    pass
+                    wandb_log({k: np.mean(v)}, step=total_num_steps)
                 else:
                     self.writter.add_scalars(k, {k: np.mean(v)}, total_num_steps)
+
+    def start_eval_video(self, episode):
+        if not getattr(self.all_args, "save_gifs", False):
+            return None
+        fps = max(1, int(round(1.0 / max(getattr(self.all_args, "ifi", 0.05), 1e-6))))
+        recorder = EvalVideoRecorder(self.envs, self.video_dir, episode, fps=fps)
+        return recorder if recorder.start() else None
+
+    def capture_eval_video_frame(self, recorder):
+        if recorder is not None:
+            recorder.capture()
+
+    def close_eval_video(self, recorder, episode, step=None):
+        if recorder is not None:
+            recorder.close(wandb_key="eval/video", step=step if step is not None else episode)

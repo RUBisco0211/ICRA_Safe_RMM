@@ -6,3 +6,6 @@ gymnasium
 cvxopt
 casadi
 scipy
+wandb
+imageio
+imageio-ffmpeg
