@@ -402,11 +402,11 @@ class CARLARunner(Runner):
                     episode_iter.set_postfix(reward="{:.2f}".format(mean_episode_rewards),
                                              collision=str(self.envs.done_collision))
 
-                self.log_train(train_infos, total_num_steps)
+                self.log_train(train_infos, episode)
 
             self.envs.close()
             if self.use_eval and ((episode + 1) % self.eval_interval == 0 or episode == episodes - 1):
-                self.eval(total_num_steps)
+                self.eval(episode)
 
     def warmup(self):
         # reset env
@@ -504,7 +504,7 @@ class CARLARunner(Runner):
         self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs, values, rewards, masks)
 
     @torch.no_grad()
-    def eval(self, total_num_steps=None):
+    def eval(self, log_step=None):
         #episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
         
         episodes = self.all_args.eval_episodes
@@ -726,7 +726,7 @@ class CARLARunner(Runner):
                 eval_masks = np.ones((1, self.num_agents, 1), dtype=np.float32)
                 eval_masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
 
-            log_step = total_num_steps if total_num_steps is not None else episode
+            log_step = log_step if log_step is not None else episode
 
             if error_flag:
                 # self.vid_2_idx = None
