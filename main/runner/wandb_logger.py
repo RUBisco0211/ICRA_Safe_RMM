@@ -74,7 +74,7 @@ class EvalVideoRecorder:
         self.sensor = None
         self.frame_queue = queue.Queue()
         self.frames = []
-        self.path = self.video_dir / "eval_episode_%04d.mp4" % episode
+        self.path = self.video_dir / ("eval_episode_%04d.mp4" % episode)
 
     def start(self):
         if not all(hasattr(self.env, attr) for attr in ("world", "blueprint_library", "spectator")):

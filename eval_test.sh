@@ -1,0 +1,19 @@
+CUDA_VISIBLE_DEVICES=0 python -u run_ppo_carla.py \
+  --env_name CARLA \
+  --scenario_name highway \
+  --scene_n 0 \
+  --algorithm_name wmappo \
+  --experiment_name wandb_video_smoke \
+  --seed 0 \
+  -c 6 \
+  --num_agents 3 \
+  --discretize 5 \
+  --lr 2e-4 \
+  --critic_lr 2e-4 \
+  --episode_length 50 \
+  --avg_coef 0.2 \
+  --share_policy \
+  --episodes 1 \
+  --use_eval \
+  --eval_interval 1 \
+  --eval_episodes 1
