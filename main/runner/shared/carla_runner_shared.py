@@ -8,6 +8,7 @@ import numpy as np
 from itertools import chain
 import torch
 from copy import deepcopy
+from tqdm import tqdm
 from main.algorithms.utils.util import update_linear_schedule, compute_discounted_return, param_schedule
 from main.runner.shared.base_runner_shared import Runner
 from main.runner.runner_util import print_stepwise_msg, print_episode_msg, group_episode_results
@@ -103,7 +104,8 @@ class CARLARunner(Runner):
             self.trainer.robust_eps_scheduler.set_epoch_length(episodes)
             self.trainer.q_weight_scheduler.set_epoch_length(episodes)
 
-        for episode in range(episodes):
+        episode_iter = tqdm(range(episodes), desc="train", unit="episode")
+        for episode in episode_iter:
             start = time.time()
             
             if self.use_linear_lr_decay:
@@ -112,8 +114,8 @@ class CARLARunner(Runner):
             if self.algorithm_name == 'wmappo':
                 self.trainer.robust_eps_scheduler.step_epoch()
                 self.trainer.q_weight_scheduler.step_epoch()
-                print("Eps: {}; q_weight: {}".format(self.trainer.robust_eps_scheduler.get_eps(),\
-                        self.trainer.q_weight_scheduler.get_eps()))
+                episode_iter.set_postfix(eps="{:.3f}".format(self.trainer.robust_eps_scheduler.get_eps()),
+                                         q_weight="{:.3f}".format(self.trainer.q_weight_scheduler.get_eps()))
 
             error_flag = False
             
@@ -282,15 +284,11 @@ class CARLARunner(Runner):
                         agents_dict[vid]["steer"] = action[1]
                         agents_dict[vid]["acceleration"] = action[0]
 
-                    except RuntimeError:
-                        traceback.print_exc()
-                        print("Control: Early termination because the controller failed.")
-                        print("$$$$$$$$$$$$$$$$$$$$$$$$$$")
+                    except RuntimeError as err:
+                        tqdm.write("control failed: {}".format(err))
                         force_continue = True
-                    except:
-                        traceback.print_exc()
-                        print("Control: Unexpected error.")
-                        print("$$$$$$$$$$$$$$$$$$$$$$$$$$")
+                    except Exception as err:
+                        tqdm.write("control unexpected error: {}".format(err))
                         force_continue = True
                     finally:
                         if force_continue:
@@ -362,15 +360,9 @@ class CARLARunner(Runner):
                 # insert data into bufferentropy_coef
                 self.insert(data)
 
-                # --------- printing step-wise infomation --------- #
-                print_stepwise_msg(self.algorithm_name, cavs_list, actions_env, true_actions, all_car_info_dict, \
-                    episode, step, rewards_log, mean_rwd_items, list(rwd_items[:3])+[safety_rwds, encourage_rwds], Behavior)
-                # --------- printing step-wise infomation ---------
-
-
             if error_flag:
                 self.envs.close()
-                print("Error in simulation, continue to next episode...")
+                tqdm.write("train episode {} ended early due to simulation error".format(episode))
                 continue
 
             # compute return and update network
@@ -388,14 +380,6 @@ class CARLARunner(Runner):
 
             # log information
             if episode % self.log_interval == 0:
-                end = time.time()
-                print("\n Scenario {} Algo {} Exp {} updates {}/{} episodes.\n"
-                        .format(self.all_args.scenario_name,
-                                self.algorithm_name,
-                                self.experiment_name,
-                                episode,
-                                episodes))
-
                 if self.env_name == 'CARLA':
                     all_rewards = np.asarray(all_rewards)
                     episode_returns = all_rewards.sum(axis=0)
@@ -410,16 +394,15 @@ class CARLARunner(Runner):
                     train_infos.update({"avg_eps_safe_rewards": sum(safe_rwds)})
                     train_infos.update({"avg_eps_enco_rewards": sum(enco_rwds)})
 
-                    print_episode_msg(episode, self.envs.done_collision, (end-start)/60, episode_returns, avg_rwd_items, \
-                        discounted_returns, all_flow_rewards, all_dest_rewards, self.all_args.flow_reward_coef)
-
                     episode_dict = group_episode_results(all_rewards, all_flow_rewards, all_dest_rewards, \
                         cols_rwds, safe_rwds, enco_rwds, self.all_args.flow_reward_coef, self.all_args.gamma)
                     episode_dict['switch'] = self.envs.switch
 
                     self.store_dict[episode] = episode_dict
+                    episode_iter.set_postfix(reward="{:.2f}".format(mean_episode_rewards),
+                                             collision=str(self.envs.done_collision))
 
-                self.log_train(train_infos, episode)
+                self.log_train(train_infos, total_num_steps)
 
             self.envs.close()
             if self.use_eval and ((episode + 1) % self.eval_interval == 0 or episode == episodes - 1):
@@ -432,8 +415,6 @@ class CARLARunner(Runner):
         # have a fixed order of vehicle_id list
         self.vid_list = list(obs_dict.keys())
 
-        print("Start Episode: CAV list -- ", self.vid_list)
-
         if self.cav_force_straight_step > 0:
             dummy_actions = dict.fromkeys(obs_dict.keys(), [1.0, 0., 0.])
 
@@ -442,8 +423,6 @@ class CARLARunner(Runner):
                     obs_dict, _, _ = self.envs.step_cav_only(dummy_actions) 
                 else:
                     _, all_car_info_dict, _ = self.envs.step_cav_only(dummy_actions)
-            print("Finished freezing and Acceleration: step {}".format(self.cav_force_straight_step))
-
         obs, combined_obs = self.prepare_obs_combined(obs_dict)
         return obs, combined_obs, all_car_info_dict
 
@@ -530,7 +509,8 @@ class CARLARunner(Runner):
         
         episodes = self.all_args.eval_episodes
 
-        for episode in range(episodes):
+        episode_iter = tqdm(range(episodes), desc="eval", unit="episode", leave=False)
+        for episode in episode_iter:
             start = time.time()
 
             error_flag = False
@@ -672,15 +652,11 @@ class CARLARunner(Runner):
                         agents_dict[vid]["steer"] = action[1]
                         agents_dict[vid]["acceleration"] = action[0]
                     
-                    except RuntimeError:
-                        traceback.print_exc()
-                        print("Control: Early termination because the controller failed.")
-                        print("$$$$$$$$$$$$$$$$$$$$$$$$$$")
+                    except RuntimeError as err:
+                        tqdm.write("control failed: {}".format(err))
                         force_continue = True
-                    except:
-                        traceback.print_exc()
-                        print("Control: Unexpected error.")
-                        print("$$$$$$$$$$$$$$$$$$$$$$$$$$")
+                    except Exception as err:
+                        tqdm.write("control unexpected error: {}".format(err))
                         force_continue = True
                     finally:
                         if force_continue:
@@ -741,13 +717,7 @@ class CARLARunner(Runner):
 
                 obs, combined_obs = self.prepare_obs_combined(obs_dict)
 
-                # --------- printing step-wise infomation --------- #
-                print_stepwise_msg(self.algorithm_name, cavs_list, actions_env, true_actions, all_car_info_dict, \
-                    episode, step, rewards_log, mean_rwd_items, list(rwd_items[:3])+[safety_rwds, encourage_rwds], Behavior)
-                # --------- printing step-wise infomation --------- #
-
-
-                # in buffer, rnn_state_shape = (episode+1, n_thread, n_agent, recurrent_N, hidden_size)
+            # in buffer, rnn_state_shape = (episode+1, n_thread, n_agent, recurrent_N, hidden_size)
                 # in buffer, rnn_state_shape = (episode+1, n_thread, 1)
                 
                 # !!!here, eval_rnn_states: (n_thread=1, 3, recurN, hidden)
@@ -763,19 +733,11 @@ class CARLARunner(Runner):
                 # self.idx_2_vid = None
                 self.close_eval_video(eval_video, episode, step=log_step)
                 self.envs.close()
-                print("Error in simulation, continue to next episode...")
+                tqdm.write("eval episode {} ended early due to simulation error".format(episode))
                 continue
 
             # log information
             if episode % self.log_interval == 0:
-                end = time.time()
-                print("\n Scenario {} Algo {} Exp {} updates {}/{} episodes.\n"
-                        .format(self.all_args.scenario_name,
-                                self.algorithm_name,
-                                self.experiment_name,
-                                episode,
-                                episodes))
-
                 if self.env_name == 'CARLA':
                     all_rewards = np.asarray(all_rewards)
                     episode_returns = all_rewards.sum(axis=0)
@@ -791,15 +753,14 @@ class CARLARunner(Runner):
                     eval_info.update({"avg_eps_safe_rewards": sum(safe_rwds)})
                     eval_info.update({"avg_eps_enco_rewards": sum(enco_rwds)})
 
-                    print_episode_msg(episode, self.envs.done_collision, (end-start)/60, episode_returns, avg_rwd_items, \
-                        discounted_returns, all_flow_rewards, all_dest_rewards, self.all_args.flow_reward_coef)                    
-
                     # print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
                     episode_dict = group_episode_results(all_rewards, all_flow_rewards, all_dest_rewards, \
                         cols_rwds, safe_rwds, enco_rwds, self.all_args.flow_reward_coef, self.all_args.gamma)
                     episode_dict['switch'] = self.envs.switch
 
                     self.store_dict[episode] = episode_dict
+                    episode_iter.set_postfix(reward="{:.2f}".format(mean_episode_rewards),
+                                             collision=str(self.envs.done_collision))
 
                 self.log_train(eval_info, log_step)
 
@@ -873,7 +834,6 @@ class CARLARunner(Runner):
                 for i in range(steps):
                     states = states.clone().detach().requires_grad_()
                     value, _ = self.policy[agent_id].critic(states, rnn_states_critic, masks).mean() #dim=1
-                    print(value)
                     value.backward()
                     update = states.grad.sign() * step_eps
                     # Clamp to +/- eps.

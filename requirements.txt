@@ -9,3 +9,4 @@ scipy
 wandb
 imageio
 imageio-ffmpeg
+tqdm

@@ -5,6 +5,7 @@ import os
 import numpy as np
 from itertools import chain
 import torch
+from tqdm import tqdm
 
 from main.algorithms.utils.util import update_linear_schedule
 from main.runner.separated.base_runner_single import Runner
@@ -28,7 +29,8 @@ class CARLARunner(Runner):
         #episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
         episodes = self.all_args.episodes
 
-        for episode in range(episodes):
+        episode_iter = tqdm(range(episodes), desc="train", unit="episode")
+        for episode in episode_iter:
             start = time.time()
             error_flag = False
             
@@ -160,10 +162,6 @@ class CARLARunner(Runner):
                 
                 self.safe_actions = {self.vid_2_idx[vid]: safe_act for vid, safe_act in safe_actions.items()} 
 
-                # --------- printing step-wise infomation --------- #
-                self.print_stepwise_msg(actions_env, true_actions, all_car_info_dict, episode, step, rewards, rwd_items)
-                # --------- printing step-wise infomation --------- #
-
                 obs, combined_obs = self.prepare_obs(obs_dict)
                 def prep_carla_data(rewards, done):
                     rewards = np.expand_dims(rewards, axis=0)
@@ -183,7 +181,7 @@ class CARLARunner(Runner):
                 self.vid_2_idx = None
                 self.idx_2_vid = None
                 self.envs.close()
-                print("Error in simulation, continue to next episode...")
+                tqdm.write("train episode {} ended early due to simulation error".format(episode))
                 continue
 
             # compute return and update network
@@ -199,14 +197,6 @@ class CARLARunner(Runner):
 
             # log information
             if episode % self.log_interval == 0:
-                end = time.time()
-                print("\n Scenario {} Algo {} Exp {} updates {}/{} episodes.\n"
-                        .format(self.all_args.scenario_name,
-                                self.algorithm_name,
-                                self.experiment_name,
-                                episode,
-                                episodes))
-
                 if self.env_name == "MPE":
                     for agent_id in range(self.num_agents):
                         idv_rews = []
@@ -216,7 +206,6 @@ class CARLARunner(Runner):
                                     idv_rews.append(infos[count][agent_id].get('individual_reward', 0))
                         train_infos[agent_id].update({'individual_rewards': np.mean(idv_rews)})
                         train_infos[agent_id].update({"average_episode_rewards": np.mean(self.buffer[agent_id].rewards) * self.episode_length})
-                        print("Agent {}: average episode rewards is {}".format(agent_id, train_infos[agent_id]["average_episode_rewards"]))
                 elif self.env_name == 'CARLA':
                     mean_episode_rewards = np.array(all_rewards).sum(0).mean()
                     for agent_id in range(self.num_agents):
@@ -225,12 +214,10 @@ class CARLARunner(Runner):
                         train_infos[agent_id].update({"avg_eps_dest_rewards": sum(dest_rwds)})
                         train_infos[agent_id].update({"avg_eps_cols_rewards": sum(cols_rwds)})
                         train_infos[agent_id].update({"avg_eps_sact_rewards": sum(sact_rwds)})
-                    print("Episode {:d} any collision {}; has reward {:.3f}, flow {:.3f}, cols {:.3f}, dest {:.3f}, sact {:.3f}, takes time {:.2f} minutes."\
-                        .format(episode, str(self.envs.done_collision), mean_episode_rewards, sum(flow_rwds), \
-                        sum(cols_rwds), sum(dest_rwds), sum(sact_rwds), (end-start)/60))
-                    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+                    episode_iter.set_postfix(reward="{:.2f}".format(mean_episode_rewards),
+                                             collision=str(self.envs.done_collision))
 
-                self.log_train(train_infos, episode)
+                self.log_train(train_infos, total_num_steps)
 
             self.vid_2_idx = None
             self.idx_2_vid = None
@@ -246,8 +233,6 @@ class CARLARunner(Runner):
 
         self.vid_2_idx = {vid: idx for idx, vid in enumerate(obs_dict.keys())}
         self.idx_2_vid = {idx: vid for vid, idx in self.vid_2_idx.items()}
-
-        print("Start Episode: CAV list -- ", list(self.vid_2_idx.keys()))
 
         self.safe_actions = {self.vid_2_idx[vid]: safe_act for vid, safe_act in safe_action_dict.items()}
 
@@ -357,7 +342,8 @@ class CARLARunner(Runner):
         #episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
         episodes = self.all_args.eval_episodes
 
-        for episode in range(episodes):
+        episode_iter = tqdm(range(episodes), desc="eval", unit="episode", leave=False)
+        for episode in episode_iter:
             start = time.time()
 
             train_infos = []
@@ -486,10 +472,6 @@ class CARLARunner(Runner):
                 for agent_id in range(self.num_agents):
                     true_actions[self.idx_2_vid[agent_id]] = self.command_2_action[command[:2]]
 
-                # --------- printing step-wise infomation --------- #
-                self.print_stepwise_msg(actions_env, true_actions, all_car_info_dict, episode, step, rewards, rwd_items)
-                # --------- printing step-wise infomation --------- #
-
                 obs, combined_obs = self.prepare_obs(obs_dict)
                 def prep_carla_data(rewards, done):
                     rewards = np.expand_dims(rewards, axis=0)
@@ -513,19 +495,11 @@ class CARLARunner(Runner):
                 self.idx_2_vid = None
                 self.close_eval_video(eval_video, episode, step=log_step)
                 self.envs.close()
-                print("Error in simulation, continue to next episode...")
+                tqdm.write("eval episode {} ended early due to simulation error".format(episode))
                 continue
 
             # log information
             if episode % self.log_interval == 0:
-                end = time.time()
-                print("\n Scenario {} Algo {} Exp {} updates {}/{} episodes.\n"
-                        .format(self.all_args.scenario_name,
-                                self.algorithm_name,
-                                self.experiment_name,
-                                episode,
-                                episodes))
-
                 if self.env_name == 'CARLA':
                     mean_episode_rewards = np.array(all_rewards).sum(0).mean()
                     for agent_id in range(self.num_agents):
@@ -536,10 +510,8 @@ class CARLARunner(Runner):
                         train_info.update({"avg_eps_cols_rewards": sum(cols_rwds)})
                         train_info.update({"avg_eps_sact_rewards": sum(sact_rwds)})
                         train_infos.append(train_info)
-                    print("Episode {:d} any collision {}; has reward {:.3f}, flow {:.3f}, cols {:.3f}, dest {:.3f}, sact {:.3f}, takes time {:.2f} minutes."\
-                        .format(episode, str(self.envs.done_collision), mean_episode_rewards, sum(flow_rwds), \
-                        sum(cols_rwds), sum(dest_rwds), sum(sact_rwds), (end-start)/60))
-                    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+                    episode_iter.set_postfix(reward="{:.2f}".format(mean_episode_rewards),
+                                             collision=str(self.envs.done_collision))
 
                 self.log_train(train_infos, log_step)
 
@@ -581,7 +553,6 @@ class CARLARunner(Runner):
                 for i in range(steps):
                     states = states.clone().detach().requires_grad_()
                     value, _ = self.policy[agent_id].critic(states, rnn_states_critic, masks).mean() #dim=1
-                    print(value)
                     value.backward()
                     update = states.grad.sign() * step_eps
                     # Clamp to +/- eps.
@@ -606,24 +577,4 @@ class CARLARunner(Runner):
 
 
     def print_stepwise_msg(self, actions, true_actions, all_car_info_dict, episode, step, rewards, rwd_items):
-        print('=========================================================')
-        V_INFO_FMT_STR = "Car ID: {}; Location: ({:3.1f}, {:3.1f}); Road ID: {}; Lane ID: {}; Is_Junction: {}; Lane_type: {}; Lane_Change: {}; Velocity: {:.2f}km/h"
-        STEP_LOG_STR = "Epi: {:4d}; Step: {:4d}; Rewards: #####; flow_r: {:.2f}; cols_r: {:.2f}; dest_r: {:.2f}; sact_r: {:.2f}"
-
-        for vid, car in all_car_info_dict.items():
-            print(V_INFO_FMT_STR.format(vid, car['x'], car['y'], car['road_id'], \
-                car['lane_id'], car['jct_id'], car['lane_type'], car['lane_chg'], car['vel']))
-        chosen_action_str = "{} || ".format(self.algorithm_name)
-        true_action_str = "True || "
-        for i, v in actions.items():
-            chosen_action_str += "Agent {}: {}; ".format(i, Behavior(v))
-            true_action_str += "Agent {}: {}; ".format(i, true_actions[i])
-        print(chosen_action_str)
-        print(true_action_str)
-
-        def get_log_string(n_agents):
-            r_log_str = ",".join(["{:.2f}"]*n_agents)
-            return STEP_LOG_STR.replace("#####", r_log_str)
-
-        step_log_str = get_log_string(self.num_agents)
-        print(step_log_str.format(episode, step, *rewards.tolist(), rwd_items[0], rwd_items[1], rwd_items[2], rwd_items[3]))
+        return
