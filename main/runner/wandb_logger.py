@@ -1,5 +1,6 @@
 import os
 import queue
+import time
 from pathlib import Path
 
 import numpy as np
@@ -84,6 +85,8 @@ class EvalVideoRecorder:
         camera_bp.set_attribute("image_size_x", str(self.width))
         camera_bp.set_attribute("image_size_y", str(self.height))
         camera_bp.set_attribute("fov", "90")
+        if hasattr(self.env, "timestep"):
+            camera_bp.set_attribute("sensor_tick", str(self.env.timestep))
         transform = self.env.spectator.get_transform()
         self.sensor = self.env.world.spawn_actor(camera_bp, transform)
         self.sensor.listen(self.frame_queue.put)
@@ -94,14 +97,20 @@ class EvalVideoRecorder:
         if self.sensor is None:
             return
 
-        if hasattr(self.env, "spectator"):
-            self.sensor.set_transform(self.env.spectator.get_transform())
-
         image = None
-        while True:
+        target_frame = None
+        if hasattr(self.env, "world"):
+            target_frame = self.env.world.get_snapshot().frame
+
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
             try:
-                image = self.frame_queue.get_nowait()
+                candidate = self.frame_queue.get(timeout=0.05)
             except queue.Empty:
+                continue
+
+            image = candidate
+            if target_frame is None or candidate.frame >= target_frame:
                 break
 
         if image is None:
@@ -111,6 +120,9 @@ class EvalVideoRecorder:
         frame = frame.reshape((image.height, image.width, 4))[:, :, :3]
         frame = frame[:, :, ::-1]
         self.frames.append(frame)
+
+        if hasattr(self.env, "spectator"):
+            self.sensor.set_transform(self.env.spectator.get_transform())
 
     def close(self, wandb_key=None, step=None):
         if self.sensor is not None:
